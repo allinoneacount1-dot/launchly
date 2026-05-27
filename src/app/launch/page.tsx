@@ -1,7 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { SolanaLogo, EthereumLogo, BaseLogo, BnbLogo } from '@/components/ChainLogos';
+import { useWallet } from '@/components/WalletConnect';
+import { useDeploy } from '@/hooks/useDeploy';
 
 const CHAINS = [
   { id: 'solana', name: 'Solana', type: 'L1', logo: <SolanaLogo size={20} />, color: '#9945FF', bg: 'rgba(153, 69, 255, 0.08)', fee: '~0.001 SOL' },
@@ -11,6 +13,8 @@ const CHAINS = [
 ];
 
 export default function LaunchPage() {
+  const { solanaWallet, evmWallet, setModalOpen } = useWallet();
+  const { deployAll, deploying, results, error: deployError, reset: resetDeploy } = useDeploy();
   const [step, setStep] = useState(1);
   const [selectedChains, setSelectedChains] = useState<string[]>(['solana']);
   const [form, setForm] = useState({
@@ -24,30 +28,58 @@ export default function LaunchPage() {
     twitter: '',
     telegram: '',
   });
-  const [deploying, setDeploying] = useState(false);
-  const [deployResults, setDeployResults] = useState<{ chain: string; status: string; txHash: string }[]>([]);
+  const [simulateDeploy, setSimulateDeploy] = useState(true); // toggle for demo vs real
 
   const toggleChain = (id: string) => {
-    if (id === 'solana') return; // Solana always selected
+    if (id === 'solana') return;
     setSelectedChains(prev => prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]);
   };
 
   const handleDeploy = async () => {
-    setDeploying(true);
     setStep(4);
-    // Simulate deployment
-    const results: { chain: string; status: string; txHash: string }[] = [];
-    for (const chain of selectedChains) {
-      await new Promise(r => setTimeout(r, 1500 + Math.random() * 1000));
-      results.push({
-        chain,
-        status: 'confirmed',
-        txHash: `${chain.slice(0, 4)}_${Math.random().toString(36).slice(2, 10)}...${Math.random().toString(36).slice(2, 6)}`,
-      });
-      setDeployResults([...results]);
+
+    if (simulateDeploy) {
+      // Demo mode — simulate deployment
+      const simResults: { chain: string; status: string; txHash: string; contractAddress?: string; explorerUrl?: string }[] = [];
+      for (const chain of selectedChains) {
+        await new Promise(r => setTimeout(r, 2000 + Math.random() * 1500));
+        simResults.push({
+          chain,
+          status: 'confirmed',
+          txHash: chain === 'solana'
+            ? `${Array(44).fill(0).map(() => 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz123456789'[Math.floor(Math.random() * 58)]).join('')}`
+            : `0x${Array(64).fill(0).map(() => '0123456789abcdef'[Math.floor(Math.random() * 16)]).join('')}`,
+          contractAddress: `0x${Array(40).fill(0).map(() => '0123456789abcdef'[Math.floor(Math.random() * 16)]).join('')}`,
+          explorerUrl: chain === 'solana'
+            ? `https://explorer.solana.com/tx/demo?cluster=devnet`
+            : `https://sepolia.etherscan.io/tx/0xdemo`,
+        });
+        // Update step 4 display via state
+        window.dispatchEvent(new CustomEvent('deploy-update', { detail: [...simResults] }));
+      }
+    } else {
+      // REAL deployment
+      await deployAll({
+        name: form.name,
+        symbol: form.symbol,
+        decimals: parseInt(form.decimals),
+        initialSupply: form.supply,
+        description: form.description,
+        logoUrl: form.logo,
+        website: form.website,
+        twitter: form.twitter,
+        telegram: form.telegram,
+      }, selectedChains);
     }
-    setDeploying(false);
   };
+
+  // Listen for simulated deploy updates
+  const [liveResults, setLiveResults] = useState<any[]>([]);
+  useEffect(() => {
+    const handler = (e: any) => setLiveResults(e.detail);
+    window.addEventListener('deploy-update', handler);
+    return () => window.removeEventListener('deploy-update', handler);
+  }, []);
 
   const updateForm = (field: string, value: string) => setForm(prev => ({ ...prev, [field]: value }));
 
@@ -55,10 +87,48 @@ export default function LaunchPage() {
     <div className="min-h-screen px-6 py-12 bg-grid">
       <div className="max-w-[900px] mx-auto">
         {/* Header */}
-        <div className="text-center mb-12">
+        <div className="text-center mb-8">
           <div className="section-label">Token Launch</div>
           <h1 className="text-3xl md:text-4xl font-medium mb-3" style={{ color: 'var(--color-text-primary)' }}>Create & Deploy Your Token</h1>
           <p className="text-base" style={{ color: 'var(--color-text-secondary)' }}>Launch to multiple chains in one transaction. Only a Solana wallet needed.</p>
+        </div>
+
+        {/* Wallet Status */}
+        <div className="flex items-center justify-center gap-4 mb-10">
+          {solanaWallet ? (
+            <div className="glass-card-premium rounded-xl px-4 py-2.5 flex items-center gap-3">
+              <span className="text-lg">{solanaWallet.icon}</span>
+              <div>
+                <div className="text-xs font-medium" style={{ color: 'var(--color-text-primary)' }}>{solanaWallet.name}</div>
+                <div className="text-xs font-mono" style={{ color: 'var(--color-success)' }}>{solanaWallet.address.slice(0, 6)}...{solanaWallet.address.slice(-4)} ●</div>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => setModalOpen(true)} className="glass-card rounded-xl px-4 py-2.5 flex items-center gap-3 hover:border-[var(--color-primary)] transition-all" style={{ border: '1px solid var(--color-warning)' }}>
+              <span className="text-lg">⚠️</span>
+              <div>
+                <div className="text-xs font-medium" style={{ color: 'var(--color-warning)' }}>Solana wallet not connected</div>
+                <div className="text-xs" style={{ color: 'var(--color-text-muted)' }}>Click to connect →</div>
+              </div>
+            </button>
+          )}
+          {evmWallet ? (
+            <div className="glass-card-premium rounded-xl px-4 py-2.5 flex items-center gap-3">
+              <span className="text-lg">{evmWallet.icon}</span>
+              <div>
+                <div className="text-xs font-medium" style={{ color: 'var(--color-text-primary)' }}>{evmWallet.name}</div>
+                <div className="text-xs font-mono" style={{ color: 'var(--color-success)' }}>{evmWallet.address.slice(0, 6)}...{evmWallet.address.slice(-4)} ●</div>
+              </div>
+            </div>
+          ) : (
+            <div className="glass-card rounded-xl px-4 py-2.5 flex items-center gap-3 opacity-50">
+              <span className="text-lg">🦊</span>
+              <div>
+                <div className="text-xs font-medium" style={{ color: 'var(--color-text-muted)' }}>Optional: EVM wallet</div>
+                <div className="text-xs" style={{ color: 'var(--color-text-muted)' }}>For managing EVM deployments</div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Step indicator */}
@@ -77,7 +147,7 @@ export default function LaunchPage() {
 
         {/* Step 1: Token Details */}
         {step === 1 && (
-          <div className="glass-card rounded-2xl p-8">
+          <div className="glass-card-premium rounded-2xl p-8">
             <h2 className="text-xl font-medium mb-6" style={{ color: 'var(--color-text-primary)' }}>Token Details</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
@@ -127,7 +197,7 @@ export default function LaunchPage() {
 
         {/* Step 2: Chain Selection */}
         {step === 2 && (
-          <div className="glass-card rounded-2xl p-8">
+          <div className="glass-card-premium rounded-2xl p-8">
             <h2 className="text-xl font-medium mb-2" style={{ color: 'var(--color-text-primary)' }}>Select Chains</h2>
             <p className="text-sm mb-6" style={{ color: 'var(--color-text-secondary)' }}>Solana is always included as your home base. Add EVM chains as needed.</p>
 
@@ -159,7 +229,7 @@ export default function LaunchPage() {
               })}
             </div>
 
-            <div className="glass-card rounded-xl p-4 mb-6" style={{ background: 'rgba(139, 92, 246, 0.05)' }}>
+            <div className="glass-card-premium rounded-xl p-4 mb-6" style={{ background: 'rgba(139, 92, 246, 0.05)' }}>
               <div className="flex items-start gap-3">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--color-primary)" strokeWidth="2" className="mt-0.5 shrink-0"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><path d="M12 8h.01" /></svg>
                 <div>
@@ -178,7 +248,7 @@ export default function LaunchPage() {
 
         {/* Step 3: Review */}
         {step === 3 && (
-          <div className="glass-card rounded-2xl p-8">
+          <div className="glass-card-premium rounded-2xl p-8">
             <h2 className="text-xl font-medium mb-6" style={{ color: 'var(--color-text-primary)' }}>Review & Launch</h2>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
@@ -216,7 +286,7 @@ export default function LaunchPage() {
               </div>
             </div>
 
-            <div className="glass-card rounded-xl p-4 mb-8" style={{ background: 'rgba(16, 185, 129, 0.05)' }}>
+            <div className="glass-card-premium rounded-xl p-4 mb-8" style={{ background: 'rgba(16, 185, 129, 0.05)' }}>
               <div className="flex items-center gap-3">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--color-success)" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
                 <div className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
@@ -236,7 +306,7 @@ export default function LaunchPage() {
 
         {/* Step 4: Deployment Progress */}
         {step === 4 && (
-          <div className="glass-card rounded-2xl p-8">
+          <div className="glass-card-premium rounded-2xl p-8">
             <h2 className="text-xl font-medium mb-2" style={{ color: 'var(--color-text-primary)' }}>
               {deploying ? 'Deploying...' : 'Deployment Complete! 🎉'}
             </h2>
@@ -252,7 +322,7 @@ export default function LaunchPage() {
                 const isDone = !!result;
 
                 return (
-                  <div key={id} className="glass-card rounded-xl p-5 flex items-center justify-between">
+                  <div key={id} className="glass-card-premium rounded-xl p-5 flex items-center justify-between">
                     <div className="flex items-center gap-4">
                       <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: chain.bg }}>{chain.logo}</div>
                       <div>
