@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import { SolanaLogo, EthereumLogo, BaseLogo, BnbLogo } from '@/components/ChainLogos';
 import { useWallet } from '@/components/WalletConnect';
 import { useDeploy } from '@/hooks/useDeploy';
+import { validateTokenForm, sanitizeInput, type ValidationError } from '@/lib/validation';
+import { useLaunches, type LaunchRecord } from '@/components/LaunchTracker';
 
 const CHAINS = [
   { id: 'solana', name: 'Solana', type: 'L1', logo: <SolanaLogo size={20} />, color: '#9945FF', bg: 'rgba(153, 69, 255, 0.08)', fee: '~0.001 SOL' },
@@ -15,6 +17,7 @@ const CHAINS = [
 export default function LaunchPage() {
   const { solanaWallet, evmWallet, setModalOpen } = useWallet();
   const { deployAll, deploying, results, error: deployError, reset: resetDeploy } = useDeploy();
+  const { addLaunch, updateChainStatus } = useLaunches();
   const [step, setStep] = useState(1);
   const [selectedChains, setSelectedChains] = useState<string[]>(['solana']);
   const [form, setForm] = useState({
@@ -29,6 +32,8 @@ export default function LaunchPage() {
     telegram: '',
   });
   const [simulateDeploy, setSimulateDeploy] = useState(true); // toggle for demo vs real
+  const [validationErrors, setValidationErrors] = useState<ValidationError[]>([]);
+  const [step1Error, setStep1Error] = useState<string | null>(null);
 
   const toggleChain = (id: string) => {
     if (id === 'solana') return;
@@ -38,27 +43,42 @@ export default function LaunchPage() {
   const handleDeploy = async () => {
     setStep(4);
 
+    const launchId = `launch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const creator = solanaWallet?.address ?? evmWallet?.address ?? 'unknown';
+
+    // Create launch record
+    const launchRecord: LaunchRecord = {
+      id: launchId,
+      name: form.name,
+      symbol: form.symbol,
+      supply: form.supply,
+      decimals: parseInt(form.decimals),
+      chains: selectedChains.map(c => ({ chain: c, status: 'pending' as const })),
+      creator,
+      createdAt: Date.now(),
+      holders: 0,
+      liquidity: '$0',
+      description: form.description,
+    };
+    addLaunch(launchRecord);
+
     if (simulateDeploy) {
-      // Demo mode — simulate deployment
       const simResults: { chain: string; status: string; txHash: string; contractAddress?: string; explorerUrl?: string }[] = [];
       for (const chain of selectedChains) {
         await new Promise(r => setTimeout(r, 2000 + Math.random() * 1500));
-        simResults.push({
-          chain,
-          status: 'confirmed',
-          txHash: chain === 'solana'
-            ? `${Array(44).fill(0).map(() => 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz123456789'[Math.floor(Math.random() * 58)]).join('')}`
-            : `0x${Array(64).fill(0).map(() => '0123456789abcdef'[Math.floor(Math.random() * 16)]).join('')}`,
-          contractAddress: `0x${Array(40).fill(0).map(() => '0123456789abcdef'[Math.floor(Math.random() * 16)]).join('')}`,
-          explorerUrl: chain === 'solana'
-            ? `https://explorer.solana.com/tx/demo?cluster=devnet`
-            : `https://sepolia.etherscan.io/tx/0xdemo`,
-        });
-        // Update step 4 display via state
+        const txHash = chain === 'solana'
+          ? `${Array(44).fill(0).map(() => 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz123456789'[Math.floor(Math.random() * 58)]).join('')}`
+          : `0x${Array(64).fill(0).map(() => '0123456789abcdef'[Math.floor(Math.random() * 16)]).join('')}`;
+        const contractAddr = `0x${Array(40).fill(0).map(() => '0123456789abcdef'[Math.floor(Math.random() * 16)]).join('')}`;
+        const explorerUrl = chain === 'solana'
+          ? `https://explorer.solana.com/tx/${txHash}?cluster=devnet`
+          : `https://sepolia.etherscan.io/tx/${txHash}`;
+
+        simResults.push({ chain, status: 'confirmed', txHash, contractAddress: contractAddr, explorerUrl });
+        updateChainStatus(launchId, chain, 'confirmed', txHash, contractAddr);
         window.dispatchEvent(new CustomEvent('deploy-update', { detail: [...simResults] }));
       }
     } else {
-      // REAL deployment
       await deployAll({
         name: form.name,
         symbol: form.symbol,
@@ -81,7 +101,11 @@ export default function LaunchPage() {
     return () => window.removeEventListener('deploy-update', handler);
   }, []);
 
-  const updateForm = (field: string, value: string) => setForm(prev => ({ ...prev, [field]: value }));
+  const updateForm = (field: string, value: string) => {
+    setForm(prev => ({ ...prev, [field]: sanitizeInput(value) }));
+    if (validationErrors.length > 0) setValidationErrors([]);
+    if (step1Error) setStep1Error(null);
+  };
 
   return (
     <div className="min-h-screen px-6 py-12 bg-grid">
@@ -149,6 +173,11 @@ export default function LaunchPage() {
         {step === 1 && (
           <div className="glass-card-premium rounded-2xl p-8">
             <h2 className="text-xl font-medium mb-6" style={{ color: 'var(--color-text-primary)' }}>Token Details</h2>
+            {step1Error && (
+              <div className="mb-4 rounded-xl px-4 py-3 text-sm" style={{ background: 'rgba(239,68,68,0.1)', color: 'var(--color-danger)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                ⚠️ {step1Error}
+              </div>
+            )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="text-xs font-medium mb-2 block" style={{ color: 'var(--color-text-secondary)' }}>Token Name *</label>
@@ -188,7 +217,17 @@ export default function LaunchPage() {
               </div>
             </div>
             <div className="flex justify-end mt-8">
-              <button className="btn-primary h-11 px-8 text-sm" onClick={() => setStep(2)} disabled={!form.name || !form.symbol || !form.supply}>
+              <button className="btn-primary h-11 px-8 text-sm" onClick={() => {
+                  const errors = validateTokenForm(form);
+                  if (errors.length > 0) {
+                    setValidationErrors(errors);
+                    setStep1Error(errors[0].message);
+                    return;
+                  }
+                  setValidationErrors([]);
+                  setStep1Error(null);
+                  setStep(2);
+                }} disabled={!form.name || !form.symbol || !form.supply}>
                 Next: Select Chains →
               </button>
             </div>
@@ -286,6 +325,23 @@ export default function LaunchPage() {
               </div>
             </div>
 
+            {/* Mode toggle */}
+            <div className="flex items-center justify-between mb-6">
+              <div className="text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--color-text-muted)' }}>Deployment Mode</div>
+              <button
+                onClick={() => setSimulateDeploy(!simulateDeploy)}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+                style={{
+                  background: simulateDeploy ? 'rgba(245,158,11,0.1)' : 'rgba(16,185,129,0.1)',
+                  color: simulateDeploy ? 'var(--color-warning)' : 'var(--color-success)',
+                  border: `1px solid ${simulateDeploy ? 'rgba(245,158,11,0.2)' : 'rgba(16,185,129,0.2)'}`,
+                }}
+              >
+                <span>{simulateDeploy ? '🧪' : '🔴'}</span>
+                {simulateDeploy ? 'Demo Mode' : 'Live Mode'}
+              </button>
+            </div>
+
             <div className="glass-card-premium rounded-xl p-4 mb-8" style={{ background: 'rgba(16, 185, 129, 0.05)' }}>
               <div className="flex items-center gap-3">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--color-success)" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
@@ -307,19 +363,34 @@ export default function LaunchPage() {
         {/* Step 4: Deployment Progress */}
         {step === 4 && (
           <div className="glass-card-premium rounded-2xl p-8">
-            <h2 className="text-xl font-medium mb-2" style={{ color: 'var(--color-text-primary)' }}>
-              {deploying ? 'Deploying...' : 'Deployment Complete! 🎉'}
-            </h2>
-            <p className="text-sm mb-8" style={{ color: 'var(--color-text-secondary)' }}>
+            {/* Mode toggle */}
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-medium" style={{ color: 'var(--color-text-primary)' }}>
+                {deploying ? 'Deploying…' : 'Deployment Complete! 🎉'}
+              </h2>
+              <div className="flex items-center gap-2">
+                <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                  {simulateDeploy ? 'Demo Mode' : 'Live Mode'}
+                </span>
+              </div>
+            </div>
+            <p className="text-sm mb-6" style={{ color: 'var(--color-text-secondary)' }}>
               {deploying ? 'Your token is being deployed across selected chains.' : 'Your token is now live on all selected chains.'}
             </p>
 
-            <div className="space-y-4 mb-8">
+            {/* Progress cards */}
+            <div className="space-y-3 mb-8">
               {selectedChains.map(id => {
                 const chain = CHAINS.find(c => c.id === id)!;
-                const result = deployResults.find(r => r.chain === id);
+                const result = simulateDeploy
+                  ? liveResults.find((r: any) => r.chain === id)
+                  : results.find(r => r.chain === id);
+                const chainResult = simulateDeploy
+                  ? undefined
+                  : results.find(r => r.chain === id);
                 const isDeploying = deploying && !result;
-                const isDone = !!result;
+                const isDone = simulateDeploy ? !!result : chainResult?.status === 'confirmed';
+                const chainStatus = !isDeploying ? (isDone ? 'confirmed' : 'pending') : 'deploying';
 
                 return (
                   <div key={id} className="glass-card-premium rounded-xl p-5 flex items-center justify-between">
@@ -327,25 +398,54 @@ export default function LaunchPage() {
                       <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: chain.bg }}>{chain.logo}</div>
                       <div>
                         <div className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>{chain.name}</div>
-                        {result && <div className="text-xs font-mono" style={{ color: 'var(--color-text-muted)' }}>{result.txHash}</div>}
+                        {result?.txHash && (
+                          <a href={result.explorerUrl} target="_blank" rel="noopener noreferrer"
+                            className="text-xs font-mono hover:underline" style={{ color: 'var(--color-accent)' }}>
+                            {result.txHash.length > 20 ? `${result.txHash.slice(0, 10)}…${result.txHash.slice(-8)}` : result.txHash} ↗
+                          </a>
+                        )}
+                        {!result && chainStatus === 'pending' && (
+                          <div className="text-xs" style={{ color: 'var(--color-text-muted)' }}>Queued</div>
+                        )}
                       </div>
                     </div>
                     <div>
                       {isDeploying && (
                         <div className="flex items-center gap-2">
                           <div className="w-4 h-4 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--color-border)', borderTopColor: chain.color }} />
-                          <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>Deploying...</span>
+                          <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{simulateDeploy ? 'Deploying…' : 'Signing…'}</span>
                         </div>
                       )}
                       {isDone && <span className="status-live">Confirmed</span>}
-                      {!isDeploying && !isDone && <span className="status-pending">Waiting...</span>}
+                      {!isDeploying && !isDone && <span className="status-pending">Pending</span>}
                     </div>
                   </div>
                 );
               })}
             </div>
 
-            {!deploying && deployResults.length > 0 && (
+            {/* Deploy explorer links */}
+            {(deploying === false && (liveResults.length > 0 || results.length > 0)) && (
+              <div className="glass-card rounded-xl p-4 mb-6">
+                <div className="text-xs font-semibold mb-3" style={{ color: 'var(--color-text-muted)' }}>Deployment Results</div>
+                {(simulateDeploy ? liveResults : results).map((r: any, i: number) => (
+                  <div key={i} className="flex items-center justify-between text-xs py-1.5">
+                    <span style={{ color: 'var(--color-text-secondary)' }}>{r.chain}</span>
+                    {r.contractAddress && (
+                      <span className="font-mono" style={{ color: 'var(--color-text-muted)' }}>
+                        {r.contractAddress.slice(0, 8)}…{r.contractAddress.slice(-6)}
+                      </span>
+                    )}
+                    {r.explorerUrl && (
+                      <a href={r.explorerUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--color-accent)' }}>Explorer ↗</a>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Actions */}
+            {!deploying && (
               <div className="flex flex-col sm:flex-row gap-4 justify-center">
                 <a href="/dashboard" className="btn-primary h-11 px-8 text-sm text-center">View Dashboard</a>
                 <a href="/lobby" className="btn-secondary h-11 px-8 text-sm text-center">View in Lobby</a>

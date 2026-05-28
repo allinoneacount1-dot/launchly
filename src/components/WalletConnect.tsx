@@ -18,108 +18,128 @@ export interface ConnectedWallet {
 /* ------------------------------------------------------------------ */
 function getWin() { return typeof window !== 'undefined' ? window : {} as any; }
 
-function isPhantom() {
-  const w = getWin() as any;
-  return !!w.solana?.isPhantom && !w.solana?.isGlow;
-}
-function isSolflare() {
-  const w = getWin() as any;
-  return !!w.solflare?.isSolflare;
-}
-function isMetaMask() {
-  const w = getWin() as any;
-  return !!w.ethereum?.isMetaMask && !w.ethereum?.isBraveWallet;
-}
-function getEthereum(): any {
-  const w = getWin() as any;
-  return w.ethereum ?? null;
-}
-
-const CHAIN_NAMES: Record<string, string> = {
-  '0x1': 'Ethereum', '0x2a': 'Base', '0x38': 'BNB Chain',
-  '0xa4b1': 'Arbitrum', '0x89': 'Polygon', '0xa': 'Optimism',
-};
-
 /* ------------------------------------------------------------------ */
-/*  Connection functions                                               */
+/*  Wallet detection                                                   */
 /* ------------------------------------------------------------------ */
-async function connectPhantom(): Promise<ConnectedWallet> {
-  const sol = (getWin() as any).solana;
-  if (!sol?.isPhantom) throw new Error('Phantom extension not found');
-  const r = await sol.connect();
-  return { id: 'solana-phantom', name: 'Phantom', address: r.publicKey.toString(), icon: '👻' };
-}
-
-async function connectSolflare(): Promise<ConnectedWallet> {
-  const s = (getWin() as any).solflare;
-  if (!s?.isSolflare) throw new Error('Solflare extension not found');
-  if (!s.connected) await s.connect();
-  return { id: 'solana-solflare', name: 'Solflare', address: s.publicKey.toString(), icon: '☀️' };
-}
-
-async function connectMetaMask(): Promise<ConnectedWallet> {
-  const eth = getEthereum();
-  if (!eth) throw new Error('No EVM wallet found');
-  const accounts: string[] = await eth.request({ method: 'eth_requestAccounts' });
-  const chainId: string = await eth.request({ method: 'eth_chainId' });
-  if (!accounts.length) throw new Error('No accounts returned');
+function detectWallets() {
+  const w = getWin() as any;
+  const eth = w.ethereum;
   return {
-    id: 'evm-metamask', name: 'MetaMask', address: accounts[0], icon: '🦊',
-    chain: CHAIN_NAMES[chainId] ?? undefined,
-  };
-}
-
-async function connectAnyEvm(): Promise<ConnectedWallet> {
-  const eth = getEthereum();
-  if (!eth) throw new Error('No EVM wallet found');
-  const accounts: string[] = await eth.request({ method: 'eth_requestAccounts' });
-  const chainId: string = await eth.request({ method: 'eth_chainId' });
-  if (!accounts.length) throw new Error('No accounts returned');
-
-  const win = getWin() as any;
-  let name = 'EVM Wallet';
-  let icon = '💳';
-  if (eth.isBraveWallet) { name = 'Brave Wallet'; icon = '🦁'; }
-  else if (win.rabby) { name = 'Rabby'; icon = '🐰'; }
-  else if (eth.isCoinbaseWallet) { name = 'Coinbase Wallet'; icon = '🔵'; }
-  else if (eth.isTrust) { name = 'Trust Wallet'; icon = '🛡️'; }
-  else if (eth.isMetaMask) { name = 'MetaMask'; icon = '🦊'; }
-
-  return {
-    id: 'evm-generic', name, address: accounts[0], icon,
-    chain: CHAIN_NAMES[chainId] ?? undefined,
+    phantom:     !!w.solana?.isPhantom && !w.solana?.isGlow,
+    solflare:    !!w.solflare?.isSolflare,
+    backpack:    !!w.backpack?.isBackpack,
+    glow:        !!w.solana?.isGlow,
+    metamask:    !!eth?.isMetaMask && !eth?.isBraveWallet,
+    brave:       !!eth?.isBraveWallet,
+    coinbase:    !!eth?.isCoinbaseWallet,
+    trust:       !!eth?.isTrust,
+    rabby:       !!w.rabby,
   };
 }
 
 /* ------------------------------------------------------------------ */
-/*  Wallet meta                                                        */
+/*  Wallet definitions                                                 */
 /* ------------------------------------------------------------------ */
-const SOL_IDS = ['phantom', 'solflare', 'backpack', 'glow'] as const;
-const EVM_IDS = ['metamask', 'brave', 'coinbase-evm', 'trust-evm', 'rabby'] as const;
+interface WalletDef {
+  id: string;
+  label: string;
+  icon: string;
+  type: 'solana' | 'evm';
+  detect: (d: ReturnType<typeof detectWallets>) => boolean;
+  connect: () => Promise<ConnectedWallet>;
+  downloadUrl: string;
+}
 
-const WALLET_META: Record<string, { label: string; icon: string }> = {
-  phantom:        { label: 'Phantom',          icon: '👻' },
-  solflare:       { label: 'Solflare',         icon: '☀️' },
-  backpack:       { label: 'Backpack',         icon: '🎒' },
-  glow:           { label: 'Glow',             icon: '✨' },
-  metamask:       { label: 'MetaMask',         icon: '🦊' },
-  brave:          { label: 'Brave Wallet',     icon: '🦁' },
-  'coinbase-evm': { label: 'Coinbase Wallet',  icon: '🔵' },
-  'trust-evm':    { label: 'Trust Wallet',     icon: '🛡️' },
-  rabby:          { label: 'Rabby',            icon: '🐰' },
-};
+function getWalletDefs(): WalletDef[] {
+  const w = getWin() as any;
+  const eth = w.ethereum;
 
-function detectInstalled(id: string): boolean {
-  if (id === 'phantom') return isPhantom();
-  if (id === 'solflare') return isSolflare();
-  if (id === 'metamask') return isMetaMask();
-  if (id === 'brave') return !!(getEthereum()?.isBraveWallet);
-  if (id === 'rabby') return !!(getWin() as any).rabby;
-  if (id === 'coinbase-evm') return !!(getEthereum()?.isCoinbaseWallet);
-  if (id === 'trust-evm') return !!(getEthereum()?.isTrust);
-  if (id === 'backpack') return !!(getWin() as any).backpack?.isBackpack;
-  if (id === 'glow') return !!(getWin() as any).solana?.isGlow;
-  return false;
+  return [
+    {
+      id: 'phantom', label: 'Phantom', icon: '👻', type: 'solana',
+      detect: d => d.phantom,
+      connect: async () => {
+        const sol = w.solana;
+        if (!sol?.isPhantom) throw new Error('Phantom not found');
+        const r = await sol.connect();
+        return { id: 'phantom', name: 'Phantom', address: r.publicKey.toString(), icon: '👻' };
+      },
+      downloadUrl: 'https://phantom.app/download',
+    },
+    {
+      id: 'solflare', label: 'Solflare', icon: '☀️', type: 'solana',
+      detect: d => d.solflare,
+      connect: async () => {
+        const s = w.solflare;
+        if (!s?.isSolflare) throw new Error('Solflare not found');
+        if (!s.connected) await s.connect();
+        return { id: 'solflare', name: 'Solflare', address: s.publicKey.toString(), icon: '☀️' };
+      },
+      downloadUrl: 'https://solflare.com/download',
+    },
+    {
+      id: 'backpack', label: 'Backpack', icon: '🎒', type: 'solana',
+      detect: d => d.backpack,
+      connect: async () => {
+        const b = w.backpack;
+        if (!b?.isBackpack) throw new Error('Backpack not found');
+        const r = await b.connect();
+        return { id: 'backpack', name: 'Backpack', address: r.publicKey.toString(), icon: '🎒' };
+      },
+      downloadUrl: 'https://backpack.app/download',
+    },
+    {
+      id: 'metamask', label: 'MetaMask', icon: '🦊', type: 'evm',
+      detect: d => d.metamask,
+      connect: async () => {
+        if (!eth) throw new Error('MetaMask not found');
+        const accounts: string[] = await eth.request({ method: 'eth_requestAccounts' });
+        const chainId: string = await eth.request({ method: 'eth_chainId' });
+        if (!accounts.length) throw new Error('No accounts returned');
+        const CHAIN_NAMES: Record<string, string> = {
+          '0x1': 'Ethereum', '0x2105': 'Base', '0x38': 'BNB Chain',
+          '0xa4b1': 'Arbitrum', '0x89': 'Polygon', '0xa': 'Optimism',
+          '0xaa36a7': 'Sepolia', '0x14a34': 'Base Sepolia', '0x61': 'BSC Testnet',
+        };
+        return { id: 'metamask', name: 'MetaMask', address: accounts[0], icon: '🦊', chain: CHAIN_NAMES[chainId] ?? `Chain ${parseInt(chainId, 16)}` };
+      },
+      downloadUrl: 'https://metamask.io/download',
+    },
+    {
+      id: 'coinbase', label: 'Coinbase Wallet', icon: '🔵', type: 'evm',
+      detect: d => d.coinbase,
+      connect: async () => {
+        if (!eth?.isCoinbaseWallet) throw new Error('Coinbase Wallet not found');
+        const accounts: string[] = await eth.request({ method: 'eth_requestAccounts' });
+        if (!accounts.length) throw new Error('No accounts');
+        return { id: 'coinbase', name: 'Coinbase Wallet', address: accounts[0], icon: '🔵' };
+      },
+      downloadUrl: 'https://www.coinbase.com/wallet/download',
+    },
+    {
+      id: 'rabby', label: 'Rabby', icon: '🐰', type: 'evm',
+      detect: d => d.rabby,
+      connect: async () => {
+        const r = w.rabby || w.ethereum;
+        if (!r) throw new Error('Rabby not found');
+        const accounts: string[] = await r.request({ method: 'eth_requestAccounts' });
+        if (!accounts.length) throw new Error('No accounts');
+        return { id: 'rabby', name: 'Rabby', address: accounts[0], icon: '🐰' };
+      },
+      downloadUrl: 'https://rabby.io/download',
+    },
+    {
+      id: 'brave', label: 'Brave Wallet', icon: '🦁', type: 'evm',
+      detect: d => d.brave,
+      connect: async () => {
+        if (!eth?.isBraveWallet) throw new Error('Brave Wallet not found');
+        const accounts: string[] = await eth.request({ method: 'eth_requestAccounts' });
+        if (!accounts.length) throw new Error('No accounts');
+        return { id: 'brave', name: 'Brave Wallet', address: accounts[0], icon: '🦁' };
+      },
+      downloadUrl: 'https://brave.com/wallet',
+    },
+  ];
 }
 
 /* ------------------------------------------------------------------ */
@@ -136,6 +156,8 @@ interface Ctx {
   isConnected: boolean;
   solanaWallet: ConnectedWallet | null;
   evmWallet: ConnectedWallet | null;
+  toast: string | null;
+  setToast: (t: string | null) => void;
 }
 const Ctx = createContext<Ctx>(null!);
 export function useWallet() { return useContext(Ctx); }
@@ -144,59 +166,134 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const [wallets, setWallets] = useState<ConnectedWallet[]>([]);
   const [connecting, setConnecting] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
 
+  // Auto-dismiss toast
   useEffect(() => {
-    try { const s = localStorage.getItem('launchly_w'); if (s) setWallets(JSON.parse(s)); } catch {/**/}
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 4000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  // Restore from localStorage
+  useEffect(() => {
+    try {
+      const s = localStorage.getItem('launchly_w');
+      if (s) {
+        const parsed: ConnectedWallet[] = JSON.parse(s);
+        // Re-verify each wallet is still connected
+        const defs = getWalletDefs();
+        const verified: ConnectedWallet[] = [];
+        for (const w of parsed) {
+          const def = defs.find(d => d.id === w.id);
+          if (def && def.detect(detectWallets())) {
+            verified.push(w);
+          }
+        }
+        setWallets(verified);
+      }
+    } catch {/**/}
   }, []);
-  useEffect(() => { localStorage.setItem('launchly_w', JSON.stringify(wallets)); }, [wallets]);
 
-  // Listen for account/chain changes
+  // Persist to localStorage
   useEffect(() => {
-    const eth = getEthereum();
+    localStorage.setItem('launchly_w', JSON.stringify(wallets));
+  }, [wallets]);
+
+  // Listen for EVM account/chain changes
+  useEffect(() => {
+    const eth = (getWin() as any).ethereum;
     if (!eth?.on) return;
-    const onAccounts = (a: string[]) => { if (a.length === 0) setWallets(p => p.filter(w => !w.id.startsWith('evm-'))); };
-    const onChain = () => setWallets(p => [...p]); // trigger re-render
+    const onAccounts = (accounts: string[]) => {
+      if (accounts.length === 0) {
+        setWallets(p => p.filter(w => {
+          const def = getWalletDefs().find(d => d.id === w.id);
+          return def?.type !== 'evm';
+        }));
+        setToast('🦊 EVM wallet disconnected');
+      } else {
+        setWallets(p => p.map(w => {
+          const def = getWalletDefs().find(d => d.id === w.id);
+          if (def?.type === 'evm') return { ...w, address: accounts[0] };
+          return w;
+        }));
+      }
+    };
+    const onChain = (chainId: string) => {
+      const CHAIN_NAMES: Record<string, string> = {
+        '0x1': 'Ethereum', '0x2105': 'Base', '0x38': 'BNB Chain',
+        '0xaa36a7': 'Sepolia', '0x14a34': 'Base Sepolia', '0x61': 'BSC Testnet',
+      };
+      setWallets(p => p.map(w => {
+        const def = getWalletDefs().find(d => d.id === w.id);
+        if (def?.type === 'evm') return { ...w, chain: CHAIN_NAMES[chainId] ?? `Chain ${parseInt(chainId, 16)}` };
+        return w;
+      }));
+    };
     eth.on('accountsChanged', onAccounts);
     eth.on('chainChanged', onChain);
-    return () => { try { eth.removeListener('accountsChanged', onAccounts); eth.removeListener('chainChanged', onChain); } catch {/**/} };
+    return () => {
+      try { eth.removeListener('accountsChanged', onAccounts); eth.removeListener('chainChanged', onChain); } catch {/**/}
+    };
   }, []);
 
   const connect = useCallback(async (id: string) => {
-    setConnecting(id);
-    let w: ConnectedWallet;
-    try {
-      if (id === 'phantom') w = await connectPhantom();
-      else if (id === 'solflare') w = await connectSolflare();
-      else if (id === 'metamask') w = await connectMetaMask();
-      else w = await connectAnyEvm();
+    const defs = getWalletDefs();
+    const def = defs.find(d => d.id === id);
+    if (!def) throw new Error(`Unknown wallet: ${id}`);
 
+    setConnecting(id);
+    try {
+      const w = await def.connect();
       setWallets(prev => [...prev.filter(x => x.id !== w.id), w]);
+      setToast(`${def.icon} ${def.label} connected!`);
+      setModalOpen(false);
     } finally {
       setConnecting(null);
     }
   }, []);
 
   const disconnect = useCallback((id: string) => {
-    // Also disconnect from the actual wallet extension
-    const win = getWin() as any;
-    if (id === 'solana-phantom' && win.solana?.disconnect) { try { win.solana.disconnect(); } catch {/**/} }
-    if (id === 'solana-solflare' && win.solflare?.disconnect) { try { win.solflare.disconnect(); } catch {/**/} }
+    const w = getWin() as any;
+    // Try to disconnect from extension
+    try {
+      if (id === 'phantom' && w.solana?.disconnect) w.solana.disconnect();
+      if (id === 'solflare' && w.solflare?.disconnect) w.solflare.disconnect();
+    } catch {/**/}
     setWallets(prev => prev.filter(x => x.id !== id));
+    setToast('Wallet disconnected');
   }, []);
 
   const disconnectAll = useCallback(() => {
-    disconnect('solana-phantom');
-    disconnect('solana-solflare');
-    disconnect('evm-metamask');
-    disconnect('evm-generic');
-  }, [disconnect]);
+    const w = getWin() as any;
+    try { w.solana?.disconnect(); } catch {/**/}
+    try { w.solflare?.disconnect(); } catch {/**/}
+    setWallets([]);
+    setToast('All wallets disconnected');
+  }, []);
 
-  const solanaWallet = wallets.find(w => w.id.startsWith('solana-')) ?? null;
-  const evmWallet = wallets.find(w => w.id.startsWith('evm-')) ?? null;
+  const solanaWallet = wallets.find(w => {
+    const def = getWalletDefs().find(d => d.id === w.id);
+    return def?.type === 'solana';
+  }) ?? null;
+  const evmWallet = wallets.find(w => {
+    const def = getWalletDefs().find(d => d.id === w.id);
+    return def?.type === 'evm';
+  }) ?? null;
 
   return (
-    <Ctx.Provider value={{ wallets, connecting, modalOpen, setModalOpen, connect, disconnect, disconnectAll, isConnected: wallets.length > 0, solanaWallet, evmWallet }}>
+    <Ctx.Provider value={{ wallets, connecting, modalOpen, setModalOpen, connect, disconnect, disconnectAll, isConnected: wallets.length > 0, solanaWallet, evmWallet, toast, setToast }}>
       {children}
+      {/* Toast notification */}
+      {toast && (
+        <div
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] glass-card-premium rounded-xl px-5 py-3 text-sm font-medium flex items-center gap-2"
+          style={{ color: 'var(--color-text-primary)', animation: 'modalIn 0.3s ease', boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }}
+          onClick={() => setToast(null)}
+        >
+          {toast}
+        </div>
+      )}
     </Ctx.Provider>
   );
 }
@@ -209,7 +306,7 @@ export function WalletConnectButton() {
 
   if (!isConnected) {
     return (
-      <button className="btn-primary h-9 px-5 text-sm gap-2" onClick={() => setModalOpen(true)} disabled={connecting !== null}>
+      <button className="btn-primary h-9 px-5 text-sm gap-2" onClick={() => setModalOpen(true)} disabled={connecting !== null} aria-label="Connect wallet">
         {connecting !== null ? (
           <><span className="w-4 h-4 border-2 rounded-full animate-spin" style={{ borderColor: 'rgba(255,255,255,0.3)', borderTopColor: 'white' }} /><span>Connecting…</span></>
         ) : (
@@ -245,8 +342,17 @@ export function ConnectModal() {
   const { modalOpen, setModalOpen, wallets, connecting, connect, disconnect } = useWallet();
   const [tab, setTab] = useState<'solana' | 'evm'>('solana');
   const [error, setError] = useState<string | null>(null);
+  const [detected, setDetected] = useState<ReturnType<typeof detectWallets> | null>(null);
 
-  useEffect(() => { if (!modalOpen) { setError(null); setTab('solana'); } }, [modalOpen]);
+  // Detect wallets when modal opens
+  useEffect(() => {
+    if (modalOpen) {
+      setDetected(detectWallets());
+    } else {
+      setError(null);
+      setTab('solana');
+    }
+  }, [modalOpen]);
 
   useEffect(() => {
     if (!modalOpen) return;
@@ -257,26 +363,36 @@ export function ConnectModal() {
 
   const doConnect = async (id: string) => {
     setError(null);
-    try { await connect(id); }
-    catch (e: any) {
-      if (e?.message?.includes('rejected') || e?.code === 4001) return; // user cancelled — no error
-      setError(e?.message ?? 'Connection failed');
+    try {
+      await connect(id);
+    } catch (e: any) {
+      const msg = e?.message ?? 'Connection failed';
+      // User rejected — no error shown
+      if (msg.includes('rejected') || e?.code === 4001 || msg.includes('User rejected')) return;
+      // Wallet not found — show download prompt
+      if (msg.includes('not found')) {
+        const defs = getWalletDefs();
+        const def = defs.find(d => d.id === id);
+        if (def) {
+          window.open(def.downloadUrl, '_blank');
+          setError(`${def.label} not detected. Opening download page...`);
+          return;
+        }
+      }
+      setError(msg);
     }
   };
 
-  const installedMap = useMemo(() => {
-    const m: Record<string, boolean> = {};
-    [...SOL_IDS, ...EVM_IDS].forEach(id => { m[id] = detectInstalled(id); });
-    return m;
-  }, [modalOpen]);
-
   if (!modalOpen) return null;
 
-  const ids = tab === 'solana' ? SOL_IDS : EVM_IDS;
+  const defs = getWalletDefs();
+  const solDefs = defs.filter(d => d.type === 'solana');
+  const evmDefs = defs.filter(d => d.type === 'evm');
+  const activeDefs = tab === 'solana' ? solDefs : evmDefs;
   const fmt = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={() => setModalOpen(false)}>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={() => setModalOpen(false)} role="dialog" aria-modal="true" aria-label="Connect Wallet">
       <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)' }} />
 
       <div
@@ -287,7 +403,7 @@ export function ConnectModal() {
         {/* Header */}
         <div className="flex items-center justify-between p-6 pb-2">
           <h2 className="text-lg font-semibold" style={{ color: 'var(--color-text-primary)' }}>Connect Wallet</h2>
-          <button onClick={() => setModalOpen(false)} className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ color: 'var(--color-text-muted)' }}>
+          <button onClick={() => setModalOpen(false)} className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ color: 'var(--color-text-muted)' }} aria-label="Close modal">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
           </button>
         </div>
@@ -314,7 +430,7 @@ export function ConnectModal() {
           </div>
         )}
 
-        {/* Connected list */}
+        {/* Connected wallets */}
         {wallets.length > 0 && (
           <div className="px-6 pt-3">
             <div className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--color-text-muted)' }}>Connected</div>
@@ -345,35 +461,49 @@ export function ConnectModal() {
             {tab === 'solana' ? 'Solana Wallets' : 'EVM Wallets'}
           </div>
           <div className="space-y-2">
-            {ids.map(id => {
-              const meta = WALLET_META[id];
-              const installed = installedMap[id];
-              const active = wallets.find(w => w.id.includes(id));
-              const busy = connecting === id;
+            {activeDefs.map(def => {
+              const isInstalled = detected ? def.detect(detected) : false;
+              const isConnected = wallets.some(w => w.id === def.id);
+              const isBusy = connecting === def.id;
 
               return (
-                <button key={id} onClick={() => !active && !busy && doConnect(id)}
-                  disabled={busy}
+                <button
+                  key={def.id}
+                  onClick={() => {
+                    if (isConnected || isBusy) return;
+                    if (!isInstalled) {
+                      window.open(def.downloadUrl, '_blank');
+                      return;
+                    }
+                    doConnect(def.id);
+                  }}
+                  disabled={isBusy}
                   className="w-full flex items-center gap-3 p-3 rounded-xl transition-all text-left"
                   style={{
-                    background: active ? 'rgba(16,185,129,0.05)' : 'transparent',
-                    border: active ? '1px solid rgba(16,185,129,0.2)' : '1px solid var(--color-border)',
-                    opacity: busy ? 0.6 : 1,
-                  }}>
+                    cursor: isConnected ? 'default' : 'pointer',
+                    background: isConnected ? 'rgba(16,185,129,0.05)' : 'transparent',
+                    border: isConnected ? '1px solid rgba(16,185,129,0.2)' : '1px solid var(--color-border)',
+                    opacity: isBusy ? 0.6 : 1,
+                  }}
+                >
                   <div className="w-9 h-9 rounded-lg flex items-center justify-center text-lg shrink-0"
-                    style={{ background: installed ? 'rgba(139,92,246,0.08)' : 'rgba(255,255,255,0.03)' }}>
-                    {meta.icon}
+                    style={{ background: isInstalled ? 'rgba(139,92,246,0.08)' : 'rgba(255,255,255,0.03)' }}>
+                    {def.icon}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>{meta.label}</div>
-                    <div className="text-[11px]" style={{ color: installed ? 'var(--color-success)' : 'var(--color-warning)' }}>
-                      {installed ? 'Installed — click to connect' : 'Not installed — click for download link'}
+                    <div className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>{def.label}</div>
+                    <div className="text-[11px]" style={{ color: isInstalled ? 'var(--color-success)' : 'var(--color-warning)' }}>
+                      {isInstalled
+                        ? (isConnected ? 'Connected ✓' : 'Detected — click to connect')
+                        : 'Not installed — click to download'}
                     </div>
                   </div>
-                  {busy ? (
+                  {isBusy ? (
                     <div className="w-4 h-4 border-2 rounded-full animate-spin shrink-0" style={{ borderColor: 'var(--color-border)', borderTopColor: 'var(--color-primary)' }} />
-                  ) : active ? (
+                  ) : isConnected ? (
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--color-success)" strokeWidth="2.5" className="shrink-0"><path d="m5 12 5 5L20 7" /></svg>
+                  ) : !isInstalled ? (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--color-text-muted)" strokeWidth="2" className="shrink-0"><path d="M12 5v14M5 12l7 7 7-7" /></svg>
                   ) : null}
                 </button>
               );

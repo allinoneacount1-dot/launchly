@@ -9,12 +9,13 @@ export default function Footer() {
           <span className="text-lg font-semibold gradient-text">Launch</span>
           <span className="text-lg font-semibold" style={{ color: 'var(--color-text-primary)' }}>ly</span>
         </div>
-        <div className="text-sm" style={{ color: 'var(--color-text-muted)' }}>© 2026 Launchly. All rights reserved.</div>
+        <div className="text-sm" style={{ color: 'var(--color-text-muted)' }}>© 2025 Launchly. All rights reserved.</div>
         <div className="flex gap-8">
           <Link href="/how-it-works" className="text-sm transition-colors hover:text-[var(--color-accent)]" style={{ color: 'var(--color-text-secondary)' }}>How It Works</Link>
           <Link href="/launch" className="text-sm transition-colors hover:text-[var(--color-primary)]" style={{ color: 'var(--color-text-secondary)' }}>Launch</Link>
           <Link href="/dashboard" className="text-sm transition-colors hover:text-[var(--color-primary)]" style={{ color: 'var(--color-text-secondary)' }}>Dashboard</Link>
-          <a href="https://x.com" target="_blank" rel="noopener noreferrer" className="text-sm transition-colors hover:text-white" style={{ color: 'var(--color-text-secondary)' }}>X / Twitter</a>
+          <a href="https://x.com/launchly" target="_blank" rel="noopener noreferrer" className="text-sm transition-colors hover:text-white" style={{ color: 'var(--color-text-secondary)' }}>X / Twitter</a>
+          <a href="https://x.com/launchly" target="_blank" rel="noopener noreferrer" className="text-sm transition-colors hover:text-[var(--color-accent)]" style={{ color: 'var(--color-text-secondary)' }}>Discord</a>
         </div>
       </div>
     </footer>

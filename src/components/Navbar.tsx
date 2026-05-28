@@ -21,7 +21,7 @@ export default function Navbar() {
           <Link href="/lobby" className="text-sm font-medium transition-colors" style={{ color: 'var(--color-text-secondary)' }}>Lobby</Link>
           <Link href="/how-it-works" className="text-sm font-medium transition-colors" style={{ color: 'var(--color-text-secondary)' }}>How It Works</Link>
           <Link href="/dashboard" className="text-sm font-medium transition-colors" style={{ color: 'var(--color-text-secondary)' }}>Dashboard</Link>
-          <a href="https://x.com" target="_blank" rel="noopener noreferrer" className="text-sm font-medium transition-colors" style={{ color: 'var(--color-text-secondary)' }}>X</a>
+          <a href="https://x.com/launchly" target="_blank" rel="noopener noreferrer" className="text-sm font-medium transition-colors" style={{ color: 'var(--color-text-secondary)' }}>X</a>
         </div>
 
         <div className="flex items-center gap-3">

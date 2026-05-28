@@ -39,3 +39,15 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Hardhat / contracts
+contracts/evm/node_modules/
+contracts/evm/artifacts/
+contracts/evm/cache/
+contracts/evm/typechain-types/
+contracts/evm/deployments/
+contracts/evm/.env
+
+# Solana
+contracts/solana/target/
+contracts/solana/.anchor/
